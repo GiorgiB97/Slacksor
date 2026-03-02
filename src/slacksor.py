@@ -16,6 +16,7 @@ from config import AppConfig, load_config
 from cursor_hooks_sync import CursorHookEventWatcher, ensure_cursor_hook_files
 from cursor_agent import CursorAgentClient
 from db import Database
+from keep_awake import create_inhibitor
 from bridge_commands import (
     SUPPORTED_MODELS,
     bridge_help_text,
@@ -207,6 +208,7 @@ class SlacksorRuntime:
         self._stop_event = threading.Event()
         self._socket_thread: threading.Thread | None = None
         self._socket_handler: SocketModeHandler | None = None
+        self._sleep_inhibitor = create_inhibitor(logger=self._emit_log)
 
     def set_ui_log_sink(self, sink: Callable[[str], None] | None) -> None:
         self._ui_log_sink = sink
@@ -233,6 +235,7 @@ class SlacksorRuntime:
         self._socket_thread = threading.Thread(target=_run_socket, daemon=True)
         self._socket_thread.start()
         self.slack_adapter.set_presence("auto")
+        self._sleep_inhibitor.activate()
         self._emit_log("Slack Socket Mode listener started")
 
     def maybe_start_transcript_mirror(self) -> None:
@@ -254,6 +257,7 @@ class SlacksorRuntime:
 
     def stop(self) -> None:
         self._stop_event.set()
+        self._sleep_inhibitor.deactivate()
         self.slack_adapter.set_presence("away")
         self.sessions.shutdown()
         self.watcher.stop()
