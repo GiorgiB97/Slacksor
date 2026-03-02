@@ -1,0 +1,9 @@
+.env
+.DS_Store
+.pytest_cache
+.benchmarks
+.coverage
+.venv
+*.db
+*.py[cod]
+**/__pycache__/

@@ -1,0 +1,19 @@
+[project]
+name = "slacksor"
+version = "0.1.0"
+description = "Slack to Cursor Agent bridge"
+requires-python = ">=3.11"
+dependencies = [
+    "slack-bolt>=1.21.2",
+    "slack-sdk>=3.27.1",
+    "textual>=0.63.2",
+    "watchfiles>=0.24.0",
+    "python-dotenv>=1.0.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3.4"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

@@ -1,0 +1,6 @@
+slack-bolt>=1.21.2
+slack-sdk>=3.27.1
+textual>=0.63.2
+watchfiles>=0.24.0
+python-dotenv>=1.0.1
+pytest>=8.3.4

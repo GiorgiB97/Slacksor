@@ -1,0 +1,174 @@
+Horizontal {
+    height: 1fr;
+}
+
+#left-panel {
+    width: 50%;
+    height: 1fr;
+}
+
+#log-panel {
+    width: 50%;
+    height: 1fr;
+}
+
+.panel-title {
+    text-style: bold;
+    padding: 0 1;
+}
+
+#projects-table {
+    height: 1fr;
+    min-height: 5;
+}
+
+#sessions-table {
+    height: 1fr;
+    min-height: 5;
+}
+
+#log {
+    height: 1fr;
+    min-height: 5;
+}
+
+AddProjectScreen {
+    align: center middle;
+}
+
+ModelSelectScreen {
+    align: center middle;
+}
+
+ConfirmScreen {
+    align: center middle;
+}
+
+#confirm-dialog {
+    width: 50;
+    padding: 1 2;
+    border: solid $error;
+    background: $surface;
+    height: auto;
+}
+
+#confirm-message {
+    margin-bottom: 1;
+    text-align: center;
+}
+
+#confirm-buttons {
+    padding-top: 1;
+    height: auto;
+}
+
+#confirm-buttons Button {
+    width: 1fr;
+}
+
+#form {
+    width: 60;
+    padding: 1 2;
+    border: solid $primary;
+    background: $surface;
+}
+
+.form-field {
+    margin-bottom: 1;
+    height: auto;
+}
+
+#form Select {
+    height: 3;
+}
+
+#model-select-form {
+    width: 76;
+    max-width: 95%;
+    padding: 2 2;
+    border: solid $primary;
+    background: $surface;
+    height: auto;
+}
+
+#model-select-title {
+    margin-bottom: 1;
+}
+
+#model-select-control {
+    margin-top: 1;
+    margin-bottom: 1;
+    height: auto;
+}
+
+#buttons {
+    padding-top: 2;
+    height: auto;
+}
+
+#buttons Button {
+    width: 1fr;
+}
+
+#model-select-input {
+    width: 1fr;
+    height: 3;
+}
+
+TypeConfirmScreen {
+    align: center middle;
+}
+
+#type-confirm-dialog {
+    width: 60;
+    padding: 1 2;
+    border: solid $error;
+    background: $surface;
+    height: auto;
+}
+
+#type-confirm-message {
+    margin-bottom: 1;
+    text-align: center;
+}
+
+#type-confirm-hint {
+    margin-bottom: 1;
+    color: $warning;
+}
+
+#type-confirm-input {
+    margin-bottom: 1;
+}
+
+#type-confirm-buttons {
+    padding-top: 1;
+    height: auto;
+}
+
+#type-confirm-buttons Button {
+    width: 1fr;
+}
+
+#session-explorer {
+    height: 1fr;
+}
+
+#session-filter-bar {
+    height: 3;
+    padding: 0 1;
+}
+
+#session-filter-label {
+    width: auto;
+    padding-top: 1;
+}
+
+#session-project-filter {
+    width: 1fr;
+    height: 3;
+}
+
+#session-explorer-table {
+    height: 1fr;
+}
