@@ -16,13 +16,23 @@ from bridge_commands import (
     build_slash_command_prompt,
     extract_shell_command,
     is_branch_command,
+    is_conflicts_command,
     is_diff_command,
+    is_dir_command,
     is_help_command,
+    is_last_command,
+    is_log_command,
+    is_ls_command,
     is_ping_command,
+    is_pull_command,
     is_shell_command,
     is_status_command,
+    is_whoami_command,
     model_help_text,
+    parse_blame_command,
+    parse_checkout_command,
     parse_model_command,
+    parse_stash_command,
     validate_or_normalize_model,
 )
 
@@ -343,6 +353,49 @@ class SlackEventRouter:
             self._run_git_diff(workspace_path, channel_id, thread_ts)
             return
 
+        is_checkout, checkout_branch = parse_checkout_command(translated)
+        if is_checkout:
+            self._run_checkout(checkout_branch, workspace_path, channel_id, thread_ts)
+            return
+
+        is_stash, stash_index = parse_stash_command(translated)
+        if is_stash:
+            self._run_stash(stash_index, workspace_path, channel_id, thread_ts)
+            return
+
+        if is_pull_command(translated):
+            self._run_pull(workspace_path, channel_id, thread_ts)
+            return
+
+        if is_ls_command(translated):
+            self._run_shell_command("ls -la", workspace_path, channel_id, thread_ts)
+            return
+
+        if is_dir_command(translated):
+            self._slack.post_message(channel_id, f"`{workspace_path}`", thread_ts=thread_ts)
+            return
+
+        if is_log_command(translated):
+            self._run_shell_command("git log --oneline -15 --no-color", workspace_path, channel_id, thread_ts)
+            return
+
+        if is_last_command(translated):
+            self._run_shell_command("git log -1 --stat --no-color", workspace_path, channel_id, thread_ts)
+            return
+
+        if is_whoami_command(translated):
+            self._run_whoami(workspace_path, channel_id, thread_ts)
+            return
+
+        is_blame, blame_file = parse_blame_command(translated)
+        if is_blame:
+            self._run_blame(blame_file, workspace_path, channel_id, thread_ts)
+            return
+
+        if is_conflicts_command(translated):
+            self._run_conflicts(workspace_path, channel_id, thread_ts)
+            return
+
         is_model, model_value = parse_model_command(translated)
         if is_model:
             if model_value is None:
@@ -484,6 +537,204 @@ class SlackEventRouter:
         except Exception as exc:
             response = f"Failed to run git diff: {exc}"
         self._slack.post_message(channel_id, response, thread_ts=thread_ts)
+
+    def _run_checkout(
+        self, branch_name: str | None, workspace_path: str, channel_id: str, thread_ts: str
+    ) -> None:
+        if not branch_name:
+            self._slack.post_message(
+                channel_id, "Usage: `checkout <branch-name>`", thread_ts=thread_ts
+            )
+            return
+        try:
+            result = subprocess.run(
+                ["git", "checkout", branch_name],
+                cwd=workspace_path,
+                capture_output=True,
+                text=True,
+                timeout=SHELL_COMMAND_TIMEOUT_SECONDS,
+            )
+            if result.returncode == 0:
+                output = (result.stdout.strip() or result.stderr.strip() or
+                          f"Switched to branch `{branch_name}`.")
+                self._slack.post_message(channel_id, output, thread_ts=thread_ts)
+                return
+            result = subprocess.run(
+                ["git", "checkout", "-b", branch_name],
+                cwd=workspace_path,
+                capture_output=True,
+                text=True,
+                timeout=SHELL_COMMAND_TIMEOUT_SECONDS,
+            )
+            if result.returncode == 0:
+                output = (result.stdout.strip() or result.stderr.strip() or
+                          f"Created and switched to branch `{branch_name}`.")
+                self._slack.post_message(channel_id, output, thread_ts=thread_ts)
+            else:
+                error = result.stderr.strip() or "(unknown error)"
+                self._slack.post_message(
+                    channel_id, f"checkout failed:\n```\n{error}\n```", thread_ts=thread_ts
+                )
+        except subprocess.TimeoutExpired:
+            self._slack.post_message(
+                channel_id,
+                f"checkout timed out after {SHELL_COMMAND_TIMEOUT_SECONDS}s.",
+                thread_ts=thread_ts,
+            )
+        except Exception as exc:
+            self._slack.post_message(
+                channel_id, f"Failed to run checkout: {exc}", thread_ts=thread_ts
+            )
+
+    def _run_stash(
+        self, index: str | None, workspace_path: str, channel_id: str, thread_ts: str
+    ) -> None:
+        try:
+            if index is None:
+                result = subprocess.run(
+                    ["git", "stash", "list"],
+                    cwd=workspace_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=SHELL_COMMAND_TIMEOUT_SECONDS,
+                )
+                output = result.stdout.strip()
+                if not output:
+                    self._slack.post_message(
+                        channel_id, "Stash is empty.", thread_ts=thread_ts
+                    )
+                    return
+                lines = output.splitlines()[:15]
+                self._slack.post_message(
+                    channel_id, "```\n" + "\n".join(lines) + "\n```", thread_ts=thread_ts
+                )
+            else:
+                ref = f"stash@{{{index}}}"
+                result = subprocess.run(
+                    ["git", "stash", "apply", ref],
+                    cwd=workspace_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=SHELL_COMMAND_TIMEOUT_SECONDS,
+                )
+                if result.returncode == 0:
+                    output = result.stdout.strip() or f"Applied {ref}."
+                    self._slack.post_message(channel_id, output, thread_ts=thread_ts)
+                else:
+                    error = result.stderr.strip() or "(unknown error)"
+                    self._slack.post_message(
+                        channel_id,
+                        f"stash apply failed:\n```\n{error}\n```",
+                        thread_ts=thread_ts,
+                    )
+        except subprocess.TimeoutExpired:
+            self._slack.post_message(
+                channel_id,
+                f"stash timed out after {SHELL_COMMAND_TIMEOUT_SECONDS}s.",
+                thread_ts=thread_ts,
+            )
+        except Exception as exc:
+            self._slack.post_message(
+                channel_id, f"Failed to run stash: {exc}", thread_ts=thread_ts
+            )
+
+    def _run_pull(
+        self, workspace_path: str, channel_id: str, thread_ts: str
+    ) -> None:
+        try:
+            branch_result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=workspace_path,
+                capture_output=True,
+                text=True,
+                timeout=SHELL_COMMAND_TIMEOUT_SECONDS,
+            )
+            current_branch = branch_result.stdout.strip()
+            if not current_branch or branch_result.returncode != 0:
+                self._slack.post_message(
+                    channel_id, "Could not determine current branch.", thread_ts=thread_ts
+                )
+                return
+            self._run_shell_command(
+                f"git pull origin {current_branch}", workspace_path, channel_id, thread_ts
+            )
+        except subprocess.TimeoutExpired:
+            self._slack.post_message(
+                channel_id,
+                f"pull timed out after {SHELL_COMMAND_TIMEOUT_SECONDS}s.",
+                thread_ts=thread_ts,
+            )
+        except Exception as exc:
+            self._slack.post_message(
+                channel_id, f"Failed to run pull: {exc}", thread_ts=thread_ts
+            )
+
+    def _run_whoami(
+        self, workspace_path: str, channel_id: str, thread_ts: str
+    ) -> None:
+        try:
+            name_result = subprocess.run(
+                ["git", "config", "user.name"],
+                cwd=workspace_path,
+                capture_output=True,
+                text=True,
+                timeout=SHELL_COMMAND_TIMEOUT_SECONDS,
+            )
+            email_result = subprocess.run(
+                ["git", "config", "user.email"],
+                cwd=workspace_path,
+                capture_output=True,
+                text=True,
+                timeout=SHELL_COMMAND_TIMEOUT_SECONDS,
+            )
+            name = name_result.stdout.strip() or "(not set)"
+            email = email_result.stdout.strip() or "(not set)"
+            self._slack.post_message(
+                channel_id, f"{name} <{email}>", thread_ts=thread_ts
+            )
+        except Exception as exc:
+            self._slack.post_message(
+                channel_id, f"Failed to get git identity: {exc}", thread_ts=thread_ts
+            )
+
+    def _run_blame(
+        self, file_path: str | None, workspace_path: str, channel_id: str, thread_ts: str
+    ) -> None:
+        if not file_path:
+            self._slack.post_message(
+                channel_id, "Usage: `blame <file-path>`", thread_ts=thread_ts
+            )
+            return
+        self._run_shell_command(
+            f"git blame --no-color {file_path}", workspace_path, channel_id, thread_ts
+        )
+
+    def _run_conflicts(
+        self, workspace_path: str, channel_id: str, thread_ts: str
+    ) -> None:
+        try:
+            result = subprocess.run(
+                ["git", "diff", "--name-only", "--diff-filter=U"],
+                cwd=workspace_path,
+                capture_output=True,
+                text=True,
+                timeout=SHELL_COMMAND_TIMEOUT_SECONDS,
+            )
+            output = result.stdout.strip()
+            if not output:
+                self._slack.post_message(
+                    channel_id, "No merge conflicts detected.", thread_ts=thread_ts
+                )
+                return
+            self._slack.post_message(
+                channel_id,
+                f"*Files with conflicts:*\n```\n{output}\n```",
+                thread_ts=thread_ts,
+            )
+        except Exception as exc:
+            self._slack.post_message(
+                channel_id, f"Failed to check conflicts: {exc}", thread_ts=thread_ts
+            )
 
     def safe_post(self, channel_id: str, text: str, thread_ts: str | None = None) -> None:
         try:

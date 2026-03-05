@@ -68,35 +68,94 @@ def build_slash_command_prompt(text: str, workspace_path: str) -> str:
 
 
 def is_ping_command(text: str) -> bool:
-    return text.strip().lower() in {"ping", "/ping"}
+    return text.strip().lower() == "ping"
 
 
 def is_help_command(text: str) -> bool:
-    normalized = text.strip().lower()
-    return normalized in {"help", "/help"}
+    return text.strip().lower() == "help"
 
 
 def is_branch_command(text: str) -> bool:
-    return text.strip().lower() in {"branch", "/branch"}
+    return text.strip().lower() == "branch"
 
 
 def is_status_command(text: str) -> bool:
-    return text.strip().lower() in {"status", "/status"}
+    return text.strip().lower() == "status"
 
 
 def is_diff_command(text: str) -> bool:
     return text.strip().lower() == "diff"
 
 
-def parse_model_command(text: str) -> tuple[bool, str | None]:
-    stripped = text.strip()
-    lowered = stripped.lower()
-    if lowered == "model" or lowered == "/model":
+def parse_checkout_command(text: str) -> tuple[bool, str | None]:
+    parts = text.split()
+    if not parts or parts[0].lower() != "checkout":
+        return False, None
+    if len(parts) == 1:
         return True, None
-    if lowered.startswith("model "):
-        return True, stripped[6:].strip()
-    if lowered.startswith("/model "):
-        return True, stripped[7:].strip()
+    if len(parts) == 2:
+        return True, parts[1]
+    return False, None
+
+
+def parse_stash_command(text: str) -> tuple[bool, str | None]:
+    parts = text.split()
+    if not parts or parts[0].lower() != "stash":
+        return False, None
+    if len(parts) == 1:
+        return True, None
+    if len(parts) == 2:
+        return True, parts[1]
+    return False, None
+
+
+def is_pull_command(text: str) -> bool:
+    return text.strip().lower() == "pull"
+
+
+def is_ls_command(text: str) -> bool:
+    return text.strip().lower() == "ls"
+
+
+def is_dir_command(text: str) -> bool:
+    return text.strip().lower() == "dir"
+
+
+def is_log_command(text: str) -> bool:
+    return text.strip().lower() == "log"
+
+
+def is_last_command(text: str) -> bool:
+    return text.strip().lower() == "last"
+
+
+def is_whoami_command(text: str) -> bool:
+    return text.strip().lower() == "whoami"
+
+
+def parse_blame_command(text: str) -> tuple[bool, str | None]:
+    parts = text.split()
+    if not parts or parts[0].lower() != "blame":
+        return False, None
+    if len(parts) == 1:
+        return True, None
+    if len(parts) == 2:
+        return True, parts[1]
+    return False, None
+
+
+def is_conflicts_command(text: str) -> bool:
+    return text.strip().lower() == "conflicts"
+
+
+def parse_model_command(text: str) -> tuple[bool, str | None]:
+    parts = text.split()
+    if not parts or parts[0].lower() != "model":
+        return False, None
+    if len(parts) == 1:
+        return True, None
+    if len(parts) == 2:
+        return True, parts[1]
     return False, None
 
 
@@ -122,19 +181,29 @@ def model_help_text(current_model: str, model_options: list[str] | None = None) 
 
 def bridge_help_text(current_model: str) -> str:
     return (
-        "Commands:\n"
-        "- `help`: show bridge help.\n"
+        "*Bridge commands:*\n"
+        "- `help`: show this help.\n"
         "- `ping`: check bridge status, uptime, and queue depth.\n"
-        "- `model`: show current/default model and options.\n"
-        "- `model <name>`: set default model for all new requests.\n"
-        "- `branch`: show git branches for the workspace.\n"
-        "- `status`: show git status for the workspace.\n"
-        "- `diff`: show git diff summary (changed lines per file).\n"
-        "- `stop` / `exit`: stop the active session for the project/thread.\n"
-        "- `!<command>`: run a shell command directly in the workspace (e.g. `!git status`).\n"
-        "- `/<command>`: use a cursor command (e.g. `/review`, `/tests`). "
-        "Looks up `.cursor/commands/<command>.md` in workspace, then global.\n"
-        f"- Current default model: `{current_model}`."
+        "- `model` / `model <name>`: show or set default model.\n"
+        "- `stop` / `exit`: stop the active session.\n"
+        "- `!<command>`: run a shell command (e.g. `!git status`).\n"
+        "- `/<command>`: use a cursor command (e.g. `/review`).\n"
+        "\n*Git commands:*\n"
+        "- `status`: git status.\n"
+        "- `branch`: git branches.\n"
+        "- `checkout <name>`: switch branch (creates if missing).\n"
+        "- `diff`: changed lines per file.\n"
+        "- `log`: last 15 commits (oneline).\n"
+        "- `last`: last commit with file stats.\n"
+        "- `stash`: show stash list / `stash <n>` to apply.\n"
+        "- `pull`: pull current branch from origin.\n"
+        "- `blame <file>`: git blame on a file.\n"
+        "- `conflicts`: files with merge conflicts.\n"
+        "- `whoami`: git user.name and user.email.\n"
+        "\n*Workspace commands:*\n"
+        "- `ls`: list files (ls -la).\n"
+        "- `dir`: show workspace directory path.\n"
+        f"\nDefault model: `{current_model}`."
     )
 
 

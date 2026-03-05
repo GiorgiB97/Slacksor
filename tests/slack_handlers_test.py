@@ -126,7 +126,7 @@ def test_router_help_and_model_commands(database: Database) -> None:
     router.handle_message_event({"channel": "C1", "text": "help", "ts": "10.1"})
     router.handle_message_event({"channel": "C1", "text": "model", "ts": "10.2"})
     router.handle_message_event({"channel": "C1", "text": "model gpt-5", "ts": "10.3"})
-    assert any("show bridge help" in text for _, text, _ in slack.posts)
+    assert any("show this help" in text for _, text, _ in slack.posts)
     assert any("Current model" in text for _, text, _ in slack.posts)
     assert any("opus-4.6-thinking" in text for _, text, _ in slack.posts)
     assert any("Default model updated" in text for _, text, _ in slack.posts)
@@ -499,19 +499,6 @@ def test_router_branch_command(database: Database, tmp_path) -> None:
     assert len(sessions.handled) == 0
 
 
-def test_router_branch_command_slash_variant(database: Database, tmp_path) -> None:
-    import subprocess
-    subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
-    subprocess.run(["git", "commit", "--allow-empty", "-m", "init"], cwd=str(tmp_path), capture_output=True)
-    database.add_project(str(tmp_path), "a", "C1")
-    sessions = FakeSessions()
-    slack = FakeSlack()
-    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
-    router.handle_message_event({"channel": "C1", "text": "/branch", "ts": "10.1"})
-    assert len(slack.posts) == 1
-    assert "```" in slack.posts[0][1]
-
-
 def test_router_branch_command_not_git_repo(database: Database, tmp_path) -> None:
     database.add_project(str(tmp_path), "a", "C1")
     sessions = FakeSessions()
@@ -536,18 +523,6 @@ def test_router_status_command(database: Database, tmp_path) -> None:
     assert "```" in text
     assert "git status" in text
     assert len(sessions.handled) == 0
-
-
-def test_router_status_command_slash_variant(database: Database, tmp_path) -> None:
-    import subprocess
-    subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
-    database.add_project(str(tmp_path), "a", "C1")
-    sessions = FakeSessions()
-    slack = FakeSlack()
-    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
-    router.handle_message_event({"channel": "C1", "text": "/status", "ts": "10.1"})
-    assert len(slack.posts) == 1
-    assert "git status" in slack.posts[0][1]
 
 
 def test_router_status_not_blocked_by_active_session(database: Database, tmp_path) -> None:
@@ -706,6 +681,206 @@ def test_set_presence_missing_scope_disables_future_calls(monkeypatch) -> None:
     assert web.call_count == 1
     assert len(logs) == 1
     assert "users:write" in logs[0]
+
+
+def test_router_checkout_creates_branch(database: Database, tmp_path) -> None:
+    import subprocess
+    subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
+    subprocess.run(["git", "commit", "--allow-empty", "-m", "init"], cwd=str(tmp_path), capture_output=True)
+    database.add_project(str(tmp_path), "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({"channel": "C1", "text": "checkout new-feature", "ts": "10.1"})
+    assert len(slack.posts) == 1
+    _, text, _ = slack.posts[0]
+    assert "new-feature" in text
+    assert len(sessions.handled) == 0
+
+
+def test_router_checkout_switches_existing_branch(database: Database, tmp_path) -> None:
+    import subprocess
+    subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
+    subprocess.run(["git", "commit", "--allow-empty", "-m", "init"], cwd=str(tmp_path), capture_output=True)
+    subprocess.run(["git", "branch", "existing-branch"], cwd=str(tmp_path), capture_output=True)
+    database.add_project(str(tmp_path), "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({"channel": "C1", "text": "checkout existing-branch", "ts": "10.1"})
+    assert len(slack.posts) == 1
+    _, text, _ = slack.posts[0]
+    assert "existing-branch" in text
+
+
+def test_router_checkout_no_branch_shows_usage(database: Database) -> None:
+    database.add_project("/tmp/a", "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({"channel": "C1", "text": "checkout", "ts": "10.1"})
+    assert len(slack.posts) == 1
+    _, text, _ = slack.posts[0]
+    assert "Usage" in text
+
+
+def test_router_stash_list_empty(database: Database, tmp_path) -> None:
+    import subprocess
+    subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
+    subprocess.run(["git", "commit", "--allow-empty", "-m", "init"], cwd=str(tmp_path), capture_output=True)
+    database.add_project(str(tmp_path), "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({"channel": "C1", "text": "stash", "ts": "10.1"})
+    assert len(slack.posts) == 1
+    _, text, _ = slack.posts[0]
+    assert "empty" in text.lower()
+
+
+def test_router_stash_list_with_entries(database: Database, tmp_path) -> None:
+    import subprocess
+    subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
+    subprocess.run(["git", "commit", "--allow-empty", "-m", "init"], cwd=str(tmp_path), capture_output=True)
+    (tmp_path / "file.txt").write_text("content")
+    subprocess.run(["git", "add", "file.txt"], cwd=str(tmp_path), capture_output=True)
+    subprocess.run(["git", "stash"], cwd=str(tmp_path), capture_output=True)
+    database.add_project(str(tmp_path), "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({"channel": "C1", "text": "stash", "ts": "10.1"})
+    assert len(slack.posts) == 1
+    _, text, _ = slack.posts[0]
+    assert "```" in text
+    assert "stash@{0}" in text
+
+
+def test_router_pull_command(database: Database, tmp_path) -> None:
+    import subprocess
+    subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
+    subprocess.run(["git", "commit", "--allow-empty", "-m", "init"], cwd=str(tmp_path), capture_output=True)
+    database.add_project(str(tmp_path), "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({"channel": "C1", "text": "pull", "ts": "10.1"})
+    assert len(slack.posts) == 1
+    assert len(sessions.handled) == 0
+
+
+def test_router_ls_command(database: Database, tmp_path) -> None:
+    database.add_project(str(tmp_path), "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({"channel": "C1", "text": "ls", "ts": "10.1"})
+    assert len(slack.posts) == 1
+    _, text, _ = slack.posts[0]
+    assert "```" in text
+    assert "ls -la" in text
+    assert len(sessions.handled) == 0
+
+
+def test_router_dir_command(database: Database) -> None:
+    database.add_project("/tmp/myproject", "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({"channel": "C1", "text": "dir", "ts": "10.1"})
+    assert len(slack.posts) == 1
+    _, text, _ = slack.posts[0]
+    assert "/tmp/myproject" in text
+    assert len(sessions.handled) == 0
+
+
+def test_router_log_command(database: Database, tmp_path) -> None:
+    import subprocess
+    subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
+    subprocess.run(["git", "commit", "--allow-empty", "-m", "init"], cwd=str(tmp_path), capture_output=True)
+    database.add_project(str(tmp_path), "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({"channel": "C1", "text": "log", "ts": "10.1"})
+    assert len(slack.posts) == 1
+    _, text, _ = slack.posts[0]
+    assert "```" in text
+    assert "init" in text
+    assert len(sessions.handled) == 0
+
+
+def test_router_last_command(database: Database, tmp_path) -> None:
+    import subprocess
+    subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
+    subprocess.run(["git", "commit", "--allow-empty", "-m", "init"], cwd=str(tmp_path), capture_output=True)
+    database.add_project(str(tmp_path), "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({"channel": "C1", "text": "last", "ts": "10.1"})
+    assert len(slack.posts) == 1
+    _, text, _ = slack.posts[0]
+    assert "```" in text
+    assert len(sessions.handled) == 0
+
+
+def test_router_whoami_command(database: Database, tmp_path) -> None:
+    import subprocess
+    subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=str(tmp_path), capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=str(tmp_path), capture_output=True)
+    database.add_project(str(tmp_path), "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({"channel": "C1", "text": "whoami", "ts": "10.1"})
+    assert len(slack.posts) == 1
+    _, text, _ = slack.posts[0]
+    assert "Test User" in text
+    assert "test@example.com" in text
+
+
+def test_router_blame_no_file_shows_usage(database: Database) -> None:
+    database.add_project("/tmp/a", "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({"channel": "C1", "text": "blame", "ts": "10.1"})
+    assert len(slack.posts) == 1
+    _, text, _ = slack.posts[0]
+    assert "Usage" in text
+
+
+def test_router_blame_with_file(database: Database, tmp_path) -> None:
+    import subprocess
+    subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
+    subprocess.run(["git", "commit", "--allow-empty", "-m", "init"], cwd=str(tmp_path), capture_output=True)
+    (tmp_path / "hello.py").write_text("x = 1\n")
+    subprocess.run(["git", "add", "hello.py"], cwd=str(tmp_path), capture_output=True)
+    subprocess.run(["git", "commit", "-m", "add hello"], cwd=str(tmp_path), capture_output=True)
+    database.add_project(str(tmp_path), "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({"channel": "C1", "text": "blame hello.py", "ts": "10.1"})
+    assert len(slack.posts) == 1
+    _, text, _ = slack.posts[0]
+    assert "hello.py" in text
+
+
+def test_router_conflicts_none(database: Database, tmp_path) -> None:
+    import subprocess
+    subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
+    subprocess.run(["git", "commit", "--allow-empty", "-m", "init"], cwd=str(tmp_path), capture_output=True)
+    database.add_project(str(tmp_path), "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({"channel": "C1", "text": "conflicts", "ts": "10.1"})
+    assert len(slack.posts) == 1
+    _, text, _ = slack.posts[0]
+    assert "No merge conflicts" in text
 
 
 def test_remove_reaction_non_json_error_does_not_raise(monkeypatch) -> None:

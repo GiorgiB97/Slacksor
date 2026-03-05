@@ -38,18 +38,41 @@ Slacksor maps local workspace paths to Slack channels. When a message arrives in
 
 Commands intercepted by the bridge (not forwarded to the AI):
 
+**General**
+
 | Command | Description |
 |---|---|
 | `help` | Show available commands |
 | `ping` | Check bridge status, uptime, queue depth |
 | `model` | Show current model and available options |
 | `model <name>` | Set default model for new requests |
-| `branch` | Show git branches with current branch highlighted |
-| `status` | Show `git status` for the workspace |
-| `diff` | Show git diff summary with changed lines per file |
 | `stop` / `exit` | Terminate the active agent session |
-| `!<cmd>` | Run a shell command in the workspace |
+| `!<cmd>` | Run a shell command in the workspace (e.g. `!npm test`) |
 | `/<cmd>` | Use a Cursor command file (`.cursor/commands/<cmd>.md`) |
+
+**Git**
+
+| Command | Description |
+|---|---|
+| `status` | Show `git status` for the workspace |
+| `branch` | Show git branches with current branch highlighted |
+| `checkout <name>` | Switch to a branch; creates it if it doesn't exist |
+| `diff` | Show git diff summary (changed lines per file) |
+| `log` | Last 15 commits in oneline format |
+| `last` | Last commit with file-level stats |
+| `stash` | Show the last 15 stash entries |
+| `stash <n>` | Apply `stash@{n}` to the working tree |
+| `pull` | Pull current branch from origin |
+| `blame <file>` | Show `git blame` for a file |
+| `conflicts` | List files with merge conflicts |
+| `whoami` | Show git user.name and user.email |
+
+**Workspace**
+
+| Command | Description |
+|---|---|
+| `ls` | List files in the workspace (`ls -la`) |
+| `dir` | Show the workspace directory path |
 
 ## Getting Started
 
