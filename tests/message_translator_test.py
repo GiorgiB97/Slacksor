@@ -16,6 +16,16 @@ def test_translate_without_lookup_falls_back_to_user_id() -> None:
     assert translated == "hello @U999"
 
 
+def test_smart_quotes_normalized_to_ascii() -> None:
+    translated = translate_slack_message('!git commit -am \u201cfix sentry feedback\u201d')
+    assert translated == '!git commit -am "fix sentry feedback"'
+
+
+def test_smart_single_quotes_normalized_to_ascii() -> None:
+    translated = translate_slack_message("!git commit -am \u2018fix sentry feedback\u2019")
+    assert translated == "!git commit -am 'fix sentry feedback'"
+
+
 def test_stop_detection() -> None:
     assert is_stop_command("stop")
     assert is_stop_command(" EXIT ")

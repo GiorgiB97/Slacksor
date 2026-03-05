@@ -13,11 +13,20 @@ def is_stop_command(text: str) -> bool:
     return normalized in {"stop", "exit"}
 
 
+SMART_QUOTE_MAP = str.maketrans({
+    "\u201c": '"',  # left double curly quote
+    "\u201d": '"',  # right double curly quote
+    "\u2018": "'",  # left single curly quote
+    "\u2019": "'",  # right single curly quote
+})
+
+
 def translate_slack_message(text: str, user_lookup: dict[str, str] | None = None) -> str:
     if not text:
         return ""
 
     translated = text
+    translated = translated.translate(SMART_QUOTE_MAP)
 
     def _replace_user(match: re.Match[str]) -> str:
         user_id = match.group(1)
