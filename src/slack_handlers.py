@@ -9,7 +9,11 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from db import Database
-from message_translator import is_stop_command, translate_slack_message
+from message_translator import (
+    extract_slack_message_urls,
+    is_stop_command,
+    translate_slack_message,
+)
 from session_manager import STOPPED_MESSAGE, SessionManager
 from bridge_commands import (
     bridge_help_text,
@@ -38,6 +42,7 @@ from bridge_commands import (
 
 SHELL_COMMAND_TIMEOUT_SECONDS = 30
 SHELL_OUTPUT_MAX_CHARS = 3500
+MAX_URL_REFERENCES = 3
 
 
 class SlackClientAdapter:
@@ -233,6 +238,65 @@ class SlackEventRouter:
         if not lines:
             return None
         return "Context from this Slack thread:\n\n" + "\n\n".join(lines)
+
+    def _resolve_slack_url_references(self, text: str) -> tuple[str, str | None]:
+        """Find Slack message URLs in text, fetch their content, and return (context, error).
+
+        Thread URLs (with thread_ts) return the entire thread.
+        Message URLs return the linked message and all follow-up messages in the thread.
+        At most MAX_URL_REFERENCES unique URLs are allowed.
+        """
+        refs = extract_slack_message_urls(text)
+        if not refs:
+            return "", None
+
+        unique_refs = []
+        seen: set[str] = set()
+        for ref in refs:
+            dedup_key = f"{ref.channel_id}:{ref.thread_ts or ref.message_ts}"
+            if dedup_key not in seen:
+                seen.add(dedup_key)
+                unique_refs.append(ref)
+
+        if len(unique_refs) > MAX_URL_REFERENCES:
+            return "", (
+                f"Too many URL references ({len(unique_refs)}). "
+                f"Please use at most {MAX_URL_REFERENCES}."
+            )
+
+        blocks: list[str] = []
+        for ref in unique_refs:
+            try:
+                thread_ts = ref.thread_ts or ref.message_ts
+                replies = self._slack.get_thread_replies(ref.channel_id, thread_ts)
+                if not replies:
+                    continue
+
+                if ref.thread_ts is None:
+                    replies = [m for m in replies if (m.get("ts") or "") >= ref.message_ts]
+
+                lines: list[str] = []
+                for msg in replies:
+                    msg_text = (msg.get("text") or "").strip()
+                    if not msg_text:
+                        continue
+                    translated_msg = translate_slack_message(msg_text)
+                    if not translated_msg:
+                        continue
+                    if msg.get("bot_id"):
+                        lines.append(f"Agent: {translated_msg}")
+                    else:
+                        lines.append(f"User: {translated_msg}")
+
+                if lines:
+                    block = f"==== REFERENCED CONTEXT : {ref.url} ====\n"
+                    block += "\n\n".join(lines)
+                    block += "\n==== END OF REFERENCED CONTEXT ===="
+                    blocks.append(block)
+            except Exception as exc:
+                self._logger(f"Failed to resolve referenced URL {ref.url}: {exc}")
+
+        return "\n\n".join(blocks), None
 
     @staticmethod
     def _extract_voice_transcription(event: dict[str, Any]) -> str:
@@ -436,6 +500,13 @@ class SlackEventRouter:
         self._slack.add_reaction(channel_id, ts, "eyes")
         self._logger(f"Routing message for workspace={workspace_path} thread={thread_ts}")
         enriched_prompt = build_slash_command_prompt(translated, workspace_path)
+        referenced_context, ref_error = self._resolve_slack_url_references(translated)
+        if ref_error:
+            self._slack.post_message(channel_id, ref_error, thread_ts=thread_ts)
+            self._slack.remove_reaction(channel_id, ts, "eyes")
+            return
+        if referenced_context:
+            enriched_prompt = referenced_context + "\n\n" + enriched_prompt
         thread_context = self._build_thread_context(channel_id, thread_ts, ts, translated)
         self._sessions.handle_message(
             workspace_path=workspace_path,

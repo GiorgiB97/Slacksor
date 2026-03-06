@@ -31,7 +31,7 @@ Slacksor maps local workspace paths to Slack channels. When a message arrives in
 - Cursor command integration (`/review`, `/tests`, etc.) via `.cursor/commands/`
 - Shell command passthrough (`!git log`, `!ls`, etc.)
 - TUI dashboard (Textual) or headless `serve` mode
-- Token usage tracking per session and workspace
+- Slack thread/message referencing -- paste a Slack URL to include that conversation as context
 - Per-project model overrides
 
 ## Bridge Commands

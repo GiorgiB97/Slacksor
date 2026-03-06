@@ -49,6 +49,7 @@ class FakeSlack:
         self.reactions: list[tuple[str, str, str]] = []
         self.removed_reactions: list[tuple[str, str, str]] = []
         self.thread_replies: list[dict] = []
+        self.reference_replies: dict[tuple[str, str], list[dict]] = {}
         self.presence: str | None = None
 
     def post_message(self, channel_id: str, text: str, thread_ts: str | None = None) -> None:
@@ -61,6 +62,9 @@ class FakeSlack:
         self.removed_reactions.append((channel_id, timestamp, emoji))
 
     def get_thread_replies(self, channel_id: str, thread_ts: str) -> list[dict]:
+        key = (channel_id, thread_ts)
+        if key in self.reference_replies:
+            return list(self.reference_replies[key])
         return list(self.thread_replies)
 
     def set_presence(self, status: str) -> None:
@@ -896,3 +900,228 @@ def test_remove_reaction_non_json_error_does_not_raise(monkeypatch) -> None:
     monkeypatch.setattr(slack_handlers, "SlackApiError", FakeSlackApiError)
     adapter = SlackClientAdapter(BrokenWeb(), logger=lambda _: None)  # type: ignore[arg-type]
     adapter.remove_reaction("C1", "10.1", "eyes")
+
+
+def test_router_resolves_slack_url_reference_in_prompt(database: Database) -> None:
+    database.add_project("/tmp/a", "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    slack.reference_replies[("C0AH7FL4YB0", "1772824099.371809")] = [
+        {"ts": "1772824099.371809", "user": "U1", "bot_id": None, "text": "What is the bug?"},
+        {"ts": "1772824100.000000", "user": None, "bot_id": "B1", "text": "The bug is in auth.py."},
+    ]
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({
+        "channel": "C1",
+        "text": "fix the issue from https://myteam.slack.com/archives/C0AH7FL4YB0/p1772824099371809",
+        "ts": "20.1",
+    })
+    assert len(sessions.handled) == 1
+    prompt = sessions.handled[0][4]
+    assert "==== REFERENCED CONTEXT : https://myteam.slack.com/archives/C0AH7FL4YB0/p1772824099371809 ====" in prompt
+    assert "User: What is the bug?" in prompt
+    assert "Agent: The bug is in auth.py." in prompt
+    assert "==== END OF REFERENCED CONTEXT ====" in prompt
+    assert "fix the issue from https://myteam.slack.com/archives/C0AH7FL4YB0/p1772824099371809" in prompt
+
+
+def test_router_resolves_thread_url_with_thread_ts(database: Database) -> None:
+    database.add_project("/tmp/a", "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    slack.reference_replies[("C0AH7FL4YB0", "1772824000.000001")] = [
+        {"ts": "1772824000.000001", "user": "U1", "bot_id": None, "text": "Thread root message"},
+        {"ts": "1772824099.371809", "user": None, "bot_id": "B1", "text": "Reply in thread"},
+    ]
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    url = (
+        "https://myteam.slack.com/archives/C0AH7FL4YB0/p1772824099371809"
+        "?thread_ts=1772824000.000001&cid=C0AH7FL4YB0"
+    )
+    router.handle_message_event({
+        "channel": "C1",
+        "text": f"see {url}",
+        "ts": "20.1",
+    })
+    assert len(sessions.handled) == 1
+    prompt = sessions.handled[0][4]
+    assert "User: Thread root message" in prompt
+    assert "Agent: Reply in thread" in prompt
+
+
+def test_router_resolves_multiple_url_references(database: Database) -> None:
+    database.add_project("/tmp/a", "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    slack.reference_replies[("C111", "1000000000.000001")] = [
+        {"ts": "1000000000.000001", "user": "U1", "bot_id": None, "text": "First thread"},
+    ]
+    slack.reference_replies[("C222", "2000000000.000002")] = [
+        {"ts": "2000000000.000002", "user": "U2", "bot_id": None, "text": "Second thread"},
+    ]
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({
+        "channel": "C1",
+        "text": (
+            "compare https://ws.slack.com/archives/C111/p1000000000000001 "
+            "with https://ws.slack.com/archives/C222/p2000000000000002"
+        ),
+        "ts": "20.1",
+    })
+    assert len(sessions.handled) == 1
+    prompt = sessions.handled[0][4]
+    assert "User: First thread" in prompt
+    assert "User: Second thread" in prompt
+    assert prompt.count("==== REFERENCED CONTEXT") == 2
+    assert prompt.count("==== END OF REFERENCED CONTEXT ====") == 2
+
+
+def test_router_deduplicates_same_url_references(database: Database) -> None:
+    database.add_project("/tmp/a", "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    slack.reference_replies[("C0AH7FL4YB0", "1772824099.371809")] = [
+        {"ts": "1772824099.371809", "user": "U1", "bot_id": None, "text": "Hello"},
+    ]
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    url = "https://ws.slack.com/archives/C0AH7FL4YB0/p1772824099371809"
+    router.handle_message_event({
+        "channel": "C1",
+        "text": f"{url} and again {url}",
+        "ts": "20.1",
+    })
+    assert len(sessions.handled) == 1
+    prompt = sessions.handled[0][4]
+    assert prompt.count("==== REFERENCED CONTEXT") == 1
+
+
+def test_router_no_url_reference_passes_prompt_unchanged(database: Database) -> None:
+    database.add_project("/tmp/a", "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({
+        "channel": "C1",
+        "text": "just a normal message",
+        "ts": "20.1",
+    })
+    assert len(sessions.handled) == 1
+    prompt = sessions.handled[0][4]
+    assert prompt == "just a normal message"
+    assert "REFERENCED CONTEXT" not in prompt
+
+
+def test_router_url_reference_fetch_failure_logs_and_continues(database: Database) -> None:
+    database.add_project("/tmp/a", "a", "C1")
+    sessions = FakeSessions()
+    logs: list[str] = []
+
+    class FailingSlack(FakeSlack):
+        def get_thread_replies(self, channel_id: str, thread_ts: str) -> list[dict]:
+            if channel_id == "CFAIL":
+                raise RuntimeError("channel_not_found")
+            return super().get_thread_replies(channel_id, thread_ts)
+
+    slack = FailingSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=logs.append)
+    router.handle_message_event({
+        "channel": "C1",
+        "text": "check https://ws.slack.com/archives/CFAIL/p1000000000000001",
+        "ts": "20.1",
+    })
+    assert len(sessions.handled) == 1
+    prompt = sessions.handled[0][4]
+    assert "REFERENCED CONTEXT" not in prompt
+    assert any("Failed to resolve" in log for log in logs)
+
+
+def test_router_rejects_more_than_three_url_references(database: Database) -> None:
+    database.add_project("/tmp/a", "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    urls = " ".join(
+        f"https://ws.slack.com/archives/CREF{i}/p{1000000000 + i}000000"
+        for i in range(4)
+    )
+    router.handle_message_event({
+        "channel": "C1",
+        "text": f"compare {urls}",
+        "ts": "20.1",
+    })
+    assert len(sessions.handled) == 0
+    assert any("Too many URL references" in msg[1] for msg in slack.posts)
+    assert any(("C1", "20.1", "eyes") == r for r in slack.removed_reactions)
+
+
+def test_router_allows_exactly_three_url_references(database: Database) -> None:
+    database.add_project("/tmp/a", "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    for i in range(3):
+        slack.reference_replies[(f"CREF{i}", f"{1000000000 + i}.000000")] = [
+            {"ts": f"{1000000000 + i}.000000", "user": "U1", "bot_id": None, "text": f"Message {i}"},
+        ]
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    urls = " ".join(
+        f"https://ws.slack.com/archives/CREF{i}/p{1000000000 + i}000000"
+        for i in range(3)
+    )
+    router.handle_message_event({
+        "channel": "C1",
+        "text": f"compare {urls}",
+        "ts": "20.1",
+    })
+    assert len(sessions.handled) == 1
+    prompt = sessions.handled[0][4]
+    assert prompt.count("==== REFERENCED CONTEXT") == 3
+
+
+def test_router_message_url_filters_to_referenced_and_followups(database: Database) -> None:
+    database.add_project("/tmp/a", "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    slack.reference_replies[("CREF", "1000000002.000000")] = [
+        {"ts": "1000000000.000000", "user": "U1", "bot_id": None, "text": "Thread root"},
+        {"ts": "1000000001.000000", "user": "U1", "bot_id": None, "text": "Before referenced"},
+        {"ts": "1000000002.000000", "user": "U1", "bot_id": None, "text": "Referenced message"},
+        {"ts": "1000000003.000000", "user": None, "bot_id": "B1", "text": "After referenced"},
+    ]
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({
+        "channel": "C1",
+        "text": "see https://ws.slack.com/archives/CREF/p1000000002000000",
+        "ts": "20.1",
+    })
+    assert len(sessions.handled) == 1
+    prompt = sessions.handled[0][4]
+    assert "User: Referenced message" in prompt
+    assert "Agent: After referenced" in prompt
+    assert "Thread root" not in prompt
+    assert "Before referenced" not in prompt
+
+
+def test_router_thread_url_returns_entire_thread(database: Database) -> None:
+    database.add_project("/tmp/a", "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    slack.reference_replies[("CREF", "1000000000.000000")] = [
+        {"ts": "1000000000.000000", "user": "U1", "bot_id": None, "text": "Thread root"},
+        {"ts": "1000000001.000000", "user": "U1", "bot_id": None, "text": "Middle reply"},
+        {"ts": "1000000002.000000", "user": None, "bot_id": "B1", "text": "Last reply"},
+    ]
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    url = (
+        "https://ws.slack.com/archives/CREF/p1000000002000000"
+        "?thread_ts=1000000000.000000&cid=CREF"
+    )
+    router.handle_message_event({
+        "channel": "C1",
+        "text": f"see {url}",
+        "ts": "20.1",
+    })
+    assert len(sessions.handled) == 1
+    prompt = sessions.handled[0][4]
+    assert "User: Thread root" in prompt
+    assert "User: Middle reply" in prompt
+    assert "Agent: Last reply" in prompt
