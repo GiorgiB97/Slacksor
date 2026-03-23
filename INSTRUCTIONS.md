@@ -126,6 +126,7 @@ These commands are intercepted by slacksor and not sent to Cursor Agent:
 - `ping` -- check bridge status, uptime, and queue depth
 - `model` -- show current default model and options
 - `model <name>` -- set default model for new requests (`auto` by default)
+- `model-override <name>` -- set per-project model override (use `clear` to remove)
 - `branch` -- show git branches with current branch highlighted
 - `status` -- show `git status` for the workspace
 - `diff` -- show git diff summary with changed lines per file

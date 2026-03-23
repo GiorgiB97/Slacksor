@@ -198,6 +198,78 @@ def test_router_model_command_uses_db_cached_models(database: Database) -> None:
     assert any("opus-4.6-thinking" in text for _, text, _ in slack.posts)
 
 
+def test_router_model_command_warns_about_override(database: Database) -> None:
+    database.add_project("/tmp/a", "a", "C1", default_model_override="gpt-5")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({"channel": "C1", "text": "model claude-4-sonnet", "ts": "12.1"})
+    assert any("Default model updated" in text for _, text, _ in slack.posts)
+    assert any("override" in text and "gpt-5" in text for _, text, _ in slack.posts)
+
+
+def test_router_model_command_no_warning_without_override(database: Database) -> None:
+    database.add_project("/tmp/a", "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({"channel": "C1", "text": "model claude-4-sonnet", "ts": "12.2"})
+    posted_texts = [text for _, text, _ in slack.posts]
+    assert any("Default model updated" in text for text in posted_texts)
+    assert not any("override" in text for text in posted_texts)
+
+
+def test_router_model_show_includes_override(database: Database) -> None:
+    database.add_project("/tmp/a", "a", "C1", default_model_override="gpt-5")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({"channel": "C1", "text": "model", "ts": "12.3"})
+    assert any("Project override: `gpt-5`" in text for _, text, _ in slack.posts)
+
+
+def test_router_model_override_set(database: Database) -> None:
+    database.add_project("/tmp/a", "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({"channel": "C1", "text": "model-override gpt-5", "ts": "13.1"})
+    assert any("Project model override set to `gpt-5`" in text for _, text, _ in slack.posts)
+    row = database.get_project_by_workspace("/tmp/a")
+    assert row is not None
+    assert row["default_model_override"] == "gpt-5"
+
+
+def test_router_model_override_clear(database: Database) -> None:
+    database.add_project("/tmp/a", "a", "C1", default_model_override="gpt-5")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({"channel": "C1", "text": "model-override clear", "ts": "13.2"})
+    assert any("override cleared" in text for _, text, _ in slack.posts)
+    row = database.get_project_by_workspace("/tmp/a")
+    assert row is not None
+    assert row["default_model_override"] is None
+
+
+def test_router_model_override_show_when_set(database: Database) -> None:
+    database.add_project("/tmp/a", "a", "C1", default_model_override="gpt-5")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({"channel": "C1", "text": "model-override", "ts": "13.3"})
+    assert any("Project model override: `gpt-5`" in text for _, text, _ in slack.posts)
+
+
+def test_router_model_override_show_when_not_set(database: Database) -> None:
+    database.add_project("/tmp/a", "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+    router = SlackEventRouter(database, sessions, slack, logger=lambda _: None)
+    router.handle_message_event({"channel": "C1", "text": "model-override", "ts": "13.4"})
+    assert any("No project model override set" in text for _, text, _ in slack.posts)
+
+
 def test_router_stop_when_idle(database: Database) -> None:
     database.add_project("/tmp/a", "a", "C1")
     sessions = FakeSessions()

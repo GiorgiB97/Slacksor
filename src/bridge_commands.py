@@ -159,6 +159,17 @@ def parse_model_command(text: str) -> tuple[bool, str | None]:
     return False, None
 
 
+def parse_model_override_command(text: str) -> tuple[bool, str | None]:
+    parts = text.split()
+    if not parts or parts[0].lower() != "model-override":
+        return False, None
+    if len(parts) == 1:
+        return True, None
+    if len(parts) == 2:
+        return True, parts[1]
+    return False, None
+
+
 def validate_or_normalize_model(value: str) -> str:
     normalized = normalize_model_name(value)
     if not normalized:
@@ -168,15 +179,21 @@ def validate_or_normalize_model(value: str) -> str:
     return value.strip()
 
 
-def model_help_text(current_model: str, model_options: list[str] | None = None) -> str:
+def model_help_text(
+    current_model: str,
+    model_options: list[str] | None = None,
+    project_override: str | None = None,
+) -> str:
     options_list = model_options if model_options else SUPPORTED_MODELS
     options = "\n".join(f"- `{option}`" for option in options_list)
-    return (
-        f"Current model: `{current_model}`\n"
-        f"Available models:\n{options}\n"
-        "Set model with: `model <name>`\n"
-        "Use `model auto` to return to default automatic selection."
-    )
+    lines = [f"Current model: `{current_model}`"]
+    if project_override:
+        lines.append(f"Project override: `{project_override}` (takes precedence)")
+    lines.append(f"Available models:\n{options}")
+    lines.append("Set model with: `model <name>`")
+    lines.append("Set project override with: `model-override <name>` / `model-override clear`")
+    lines.append("Use `model auto` to return to default automatic selection.")
+    return "\n".join(lines)
 
 
 def bridge_help_text(current_model: str) -> str:
@@ -185,6 +202,7 @@ def bridge_help_text(current_model: str) -> str:
         "- `help`: show this help.\n"
         "- `ping`: check bridge status, uptime, and queue depth.\n"
         "- `model` / `model <name>`: show or set default model.\n"
+        "- `model-override <name>`: set per-project model override (`clear` to remove).\n"
         "- `stop` / `exit`: stop the active session.\n"
         "- `!<command>`: run a shell command (e.g. `!git status`).\n"
         "- `/<command>`: use a cursor command (e.g. `/review`).\n"

@@ -36,6 +36,7 @@ from bridge_commands import (
     parse_blame_command,
     parse_checkout_command,
     parse_model_command,
+    parse_model_override_command,
     parse_stash_command,
     validate_or_normalize_model,
 )
@@ -462,11 +463,14 @@ class SlackEventRouter:
 
         is_model, model_value = parse_model_command(translated)
         if is_model:
+            project_override = (
+                str(project["default_model_override"]) if project.get("default_model_override") else None
+            )
             if model_value is None:
                 current_model = self._db.get_default_model()
                 self._slack.post_message(
                     channel_id,
-                    model_help_text(current_model, self._get_model_options()),
+                    model_help_text(current_model, self._get_model_options(), project_override),
                     thread_ts=thread_ts,
                 )
                 return
@@ -476,9 +480,55 @@ class SlackEventRouter:
                 self._slack.post_message(channel_id, f"Invalid model command: {exc}", thread_ts=thread_ts)
                 return
             self._db.set_default_model(resolved)
+            response = f"Default model updated to `{resolved}`."
+            if project_override:
+                response += (
+                    f"\nNote: this project has override `{project_override}` which takes precedence. "
+                    "Use `model-override clear` to remove it, or `model-override <name>` to change it."
+                )
+            self._slack.post_message(channel_id, response, thread_ts=thread_ts)
+            return
+
+        is_model_override, override_value = parse_model_override_command(translated)
+        if is_model_override:
+            if override_value is None:
+                current_override = (
+                    str(project["default_model_override"]) if project.get("default_model_override") else None
+                )
+                if current_override:
+                    self._slack.post_message(
+                        channel_id,
+                        f"Project model override: `{current_override}`\n"
+                        "Use `model-override <name>` to change or `model-override clear` to remove.",
+                        thread_ts=thread_ts,
+                    )
+                else:
+                    self._slack.post_message(
+                        channel_id,
+                        "No project model override set. Using global default.\n"
+                        "Use `model-override <name>` to set one.",
+                        thread_ts=thread_ts,
+                    )
+                return
+            if override_value.lower() == "clear":
+                self._db.set_project_model_override(workspace_path, None)
+                self._slack.post_message(
+                    channel_id,
+                    "Project model override cleared. Using global default.",
+                    thread_ts=thread_ts,
+                )
+                return
+            try:
+                resolved = validate_or_normalize_model(override_value)
+            except ValueError as exc:
+                self._slack.post_message(
+                    channel_id, f"Invalid model-override value: {exc}", thread_ts=thread_ts
+                )
+                return
+            self._db.set_project_model_override(workspace_path, resolved)
             self._slack.post_message(
                 channel_id,
-                f"Default model updated to `{resolved}`.",
+                f"Project model override set to `{resolved}`.",
                 thread_ts=thread_ts,
             )
             return

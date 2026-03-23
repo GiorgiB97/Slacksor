@@ -152,6 +152,26 @@ def test_get_workspace_token_totals_empty(database: Database) -> None:
     assert totals == {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
 
+def test_set_project_model_override(database: Database) -> None:
+    database.add_project("/tmp/a", "proj-a", "C1")
+    assert database.set_project_model_override("/tmp/a", "gpt-5") is True
+    row = database.get_project_by_workspace("/tmp/a")
+    assert row is not None
+    assert row["default_model_override"] == "gpt-5"
+
+
+def test_set_project_model_override_clear(database: Database) -> None:
+    database.add_project("/tmp/a", "proj-a", "C1", default_model_override="gpt-5")
+    assert database.set_project_model_override("/tmp/a", None) is True
+    row = database.get_project_by_workspace("/tmp/a")
+    assert row is not None
+    assert row["default_model_override"] is None
+
+
+def test_set_project_model_override_missing_project(database: Database) -> None:
+    assert database.set_project_model_override("/tmp/nonexistent", "gpt-5") is False
+
+
 def test_list_sessions_for_project(database: Database) -> None:
     database.add_project("/tmp/a", "proj-a", "C1")
     database.add_project("/tmp/b", "proj-b", "C2")

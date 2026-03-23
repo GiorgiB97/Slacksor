@@ -20,9 +20,11 @@ from bridge_commands import (
     is_shell_command,
     is_status_command,
     is_whoami_command,
+    model_help_text,
     parse_blame_command,
     parse_checkout_command,
     parse_model_command,
+    parse_model_override_command,
     parse_stash_command,
     bridge_help_text,
 )
@@ -441,3 +443,57 @@ def test_parse_model_rejects_trailing_text() -> None:
 def test_parse_model_rejects_mid_sentence() -> None:
     is_cmd, _ = parse_model_command("change model to gpt-5")
     assert is_cmd is False
+
+
+def test_parse_model_override_bare() -> None:
+    is_cmd, val = parse_model_override_command("model-override")
+    assert is_cmd is True
+    assert val is None
+
+
+def test_parse_model_override_with_value() -> None:
+    is_cmd, val = parse_model_override_command("model-override gpt-5")
+    assert is_cmd is True
+    assert val == "gpt-5"
+
+
+def test_parse_model_override_clear() -> None:
+    is_cmd, val = parse_model_override_command("model-override clear")
+    assert is_cmd is True
+    assert val == "clear"
+
+
+def test_parse_model_override_no_match() -> None:
+    is_cmd, _ = parse_model_override_command("model gpt-5")
+    assert is_cmd is False
+
+
+def test_parse_model_override_rejects_trailing_text() -> None:
+    is_cmd, _ = parse_model_override_command("model-override gpt-5 please")
+    assert is_cmd is False
+
+
+def test_parse_model_override_rejects_mid_sentence() -> None:
+    is_cmd, _ = parse_model_override_command("set model-override gpt-5")
+    assert is_cmd is False
+
+
+def test_model_help_text_shows_override_when_set() -> None:
+    text = model_help_text("auto", project_override="gpt-5")
+    assert "Project override: `gpt-5`" in text
+    assert "takes precedence" in text
+
+
+def test_model_help_text_no_override_line_when_none() -> None:
+    text = model_help_text("auto", project_override=None)
+    assert "Project override" not in text
+
+
+def test_model_help_text_mentions_model_override_command() -> None:
+    text = model_help_text("auto")
+    assert "model-override" in text
+
+
+def test_bridge_help_text_mentions_model_override() -> None:
+    text = bridge_help_text("auto")
+    assert "model-override" in text

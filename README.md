@@ -46,6 +46,7 @@ Commands intercepted by the bridge (not forwarded to the AI):
 | `ping` | Check bridge status, uptime, queue depth |
 | `model` | Show current model and available options |
 | `model <name>` | Set default model for new requests |
+| `model-override <name>` | Set per-project model override (use `clear` to remove) |
 | `stop` / `exit` | Terminate the active agent session |
 | `!<cmd>` | Run a shell command in the workspace (e.g. `!npm test`) |
 | `/<cmd>` | Use a Cursor command file (`.cursor/commands/<cmd>.md`) |

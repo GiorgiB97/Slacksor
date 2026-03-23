@@ -479,6 +479,15 @@ class Database:
                 (workspace_path,),
             )
 
+    def set_project_model_override(self, workspace_path: str, model_override: str | None) -> bool:
+        with self._lock:
+            cursor = self._connection.execute(
+                "UPDATE projects SET default_model_override=? WHERE workspace_path=?",
+                (model_override, workspace_path),
+            )
+            self._connection.commit()
+            return cursor.rowcount > 0
+
     def get_default_model(self) -> str:
         current = self.get_setting("default_model")
         if current is None:
