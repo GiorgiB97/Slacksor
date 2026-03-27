@@ -179,6 +179,36 @@ ensure_env() {
 
 ensure_env
 
+check_cursor_auth() {
+  python -c "
+import subprocess, sys
+try:
+    r = subprocess.run(
+        ['cursor', 'agent', 'models'],
+        capture_output=True, text=True, timeout=15,
+    )
+    sys.exit(0 if r.returncode == 0 else 1)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null
+}
+
+if ! check_cursor_auth; then
+  echo ""
+  echo "[slacksor] Cursor Agent is not authenticated."
+  echo "[slacksor] Launching 'cursor agent' for login..."
+  echo "[slacksor] Complete authentication in your browser, then exit cursor agent (q or Ctrl+C)."
+  echo ""
+  cursor agent || true
+  echo ""
+  if ! check_cursor_auth; then
+    echo "[slacksor] Still not authenticated. Please run 'cursor agent' manually and retry."
+    exit 1
+  fi
+  echo "[slacksor] Authentication successful."
+  echo ""
+fi
+
 read -r -p "Do you want to run in TUI mode (recommended) ? ('Y'/'y' - TUI, 'N'/'n' - Headless): " RUN_MODE
 
 case "${RUN_MODE}" in

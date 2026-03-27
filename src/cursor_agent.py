@@ -16,6 +16,7 @@ KeepaliveCallback = Callable[[], None]
 ProcessStartedCallback = Callable[[int], None]
 MODEL_LINE_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)\s+-\s+.+$")
 ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+AUTH_PROMPT_PATTERN = "Press any key to log in"
 
 
 @dataclass
@@ -42,7 +43,15 @@ class CursorAgentClient:
         self.binary = binary
         self._active: dict[int, subprocess.Popen[str]] = {}
 
-    def create_chat(self, workspace_path: Path | None = None) -> str:
+    def check_auth(self, timeout_seconds: int = 15) -> bool:
+        """Return True if the cursor agent CLI is authenticated."""
+        try:
+            self.list_models(timeout_seconds=timeout_seconds)
+            return True
+        except (RuntimeError, subprocess.TimeoutExpired):
+            return False
+
+    def create_chat(self, workspace_path: Path | None = None, timeout_seconds: int = 30) -> str:
         command = [self.binary, "agent", "create-chat"]
         if workspace_path is not None:
             command.extend(
@@ -53,12 +62,25 @@ class CursorAgentClient:
                     "--force",
                 ]
             )
-        process = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        try:
+            process = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                "Cursor Agent is not authenticated. "
+                "Run `cursor agent` in a terminal to log in."
+            ) from exc
+        combined = (process.stdout or "") + (process.stderr or "")
+        if AUTH_PROMPT_PATTERN in ANSI_ESCAPE_RE.sub("", combined):
+            raise RuntimeError(
+                "Cursor Agent is not authenticated. "
+                "Run `cursor agent` in a terminal to log in."
+            )
         if process.returncode != 0:
             stderr = process.stderr.strip()
             raise RuntimeError(f"cursor agent create-chat failed: {stderr}")
@@ -126,6 +148,7 @@ class CursorAgentClient:
         chunks: list[str] = []
         result_payload: dict[str, Any] | None = None
         timed_out = False
+        auth_required = False
         started = time.monotonic()
         next_keepalive = started + keepalive_seconds
 
@@ -148,6 +171,13 @@ class CursorAgentClient:
                         break
                     time.sleep(0.1)
                     continue
+
+                clean_line = ANSI_ESCAPE_RE.sub("", line).strip()
+                if AUTH_PROMPT_PATTERN in clean_line:
+                    auth_required = True
+                    self.terminate_process(process.pid)
+                    break
+
                 parsed = _parse_event_line(line)
                 if parsed is None:
                     continue
@@ -168,6 +198,14 @@ class CursorAgentClient:
         if process.stderr is not None:
             stderr = process.stderr.read().strip()
 
+        if auth_required:
+            return process.pid, AgentRunResult(
+                status="auth_required",
+                assistant_messages=chunks,
+                stderr="Cursor Agent is not authenticated. "
+                "Run `cursor agent` in a terminal to log in.",
+                exit_code=process.returncode,
+            )
         if timed_out:
             return process.pid, AgentRunResult(
                 status="timeout",

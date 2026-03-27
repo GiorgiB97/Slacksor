@@ -356,6 +356,14 @@ class SessionManager:
                     "Agent timed out before completing.",
                     thread_ts=thread_ts,
                 )
+            elif result.status == "auth_required":
+                self._slack.add_reaction(channel_id, message_ts, "lock")
+                self._slack.post_message(
+                    channel_id,
+                    "Cursor Agent is not authenticated. "
+                    "Run `cursor agent` in a terminal to log in, then retry your message.",
+                    thread_ts=thread_ts,
+                )
             else:
                 self._slack.add_reaction(channel_id, message_ts, "x")
                 error_text = result.stderr or "cursor agent failed."

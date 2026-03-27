@@ -147,6 +147,20 @@ These commands are intercepted by slacksor and not sent to Cursor Agent:
 - `xoxb` bot token: Slack App -> **OAuth & Permissions** -> **Install to Workspace** -> Bot User OAuth Token
 - `xapp` app token: Slack App -> **Socket Mode** -> **App-Level Tokens** (scope `connections:write`)
 
+## Cursor Agent Authentication
+
+Slacksor requires the `cursor` CLI to be logged in. Authentication is verified on startup before any Slack listener begins.
+
+**Starting via `start.sh`:** The script runs `cursor agent models` to check auth. If it fails, `cursor agent` is launched interactively so you can press a key, complete login in your browser, and then exit (`q` or Ctrl+C). The script re-checks auth before continuing.
+
+**Starting via `python src/slacksor.py` directly:** If the CLI is not authenticated, slacksor logs the error and exits. Run `cursor agent` in a terminal, complete the login flow, and restart slacksor.
+
+**Auth expires while slacksor is running:** If authentication lapses mid-session, any new message sent to Slack will receive a lock reaction and an error reply:
+
+> Cursor Agent is not authenticated. Run `cursor agent` in a terminal to log in, then retry your message.
+
+Open any terminal, run `cursor agent`, follow the authentication process, and retry your message.
+
 ## Optional Auto Start (macOS launchd)
 
 1. Update placeholders in `com.slacksor.plist`:

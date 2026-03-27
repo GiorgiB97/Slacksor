@@ -266,7 +266,19 @@ class SlacksorRuntime:
             self._socket_handler.close()
         self.db.close()
 
+    def ensure_cursor_auth(self) -> None:
+        self._emit_log("Checking Cursor Agent authentication...")
+        if self.cursor.check_auth():
+            self._emit_log("Cursor Agent authenticated")
+            return
+        self._emit_log(
+            "Cursor Agent is NOT authenticated. "
+            "Run 'cursor agent' in a terminal to log in, then restart slacksor."
+        )
+        raise SystemExit(1)
+
     def serve_forever(self) -> None:
+        self.ensure_cursor_auth()
         self.sessions.recover_orphans()
         self.start_listener()
         self.maybe_start_cursor_hooks_sync()
@@ -396,6 +408,7 @@ def main() -> None:
         runtime.serve_forever()
         return
 
+    runtime.ensure_cursor_auth()
     runtime.sessions.recover_orphans()
     runtime.set_ui_log_sink(controller.push_runtime_log)
     runtime.start_listener()
