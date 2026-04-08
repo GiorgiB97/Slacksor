@@ -14,7 +14,7 @@ from slack_sdk import WebClient
 
 from config import AppConfig, load_config
 from cursor_hooks_sync import CursorHookEventWatcher, ensure_cursor_hook_files
-from cursor_agent import CursorAgentClient
+from cursor_agent import CursorAgentClient, CursorBinaryNotFoundError, cursor_cli_binary_from_env
 from db import Database
 from keep_awake import create_inhibitor
 from bridge_commands import (
@@ -179,7 +179,7 @@ class SlacksorRuntime:
         self.db = Database(config.db_path)
         self.web = WebClient(token=config.slack_bot_token)
         self.slack_adapter = SlackClientAdapter(self.web, logger=self._emit_log)
-        self.cursor = CursorAgentClient()
+        self.cursor = CursorAgentClient(binary=cursor_cli_binary_from_env())
         self.sessions = SessionManager(
             db=self.db,
             cursor_client=self.cursor,
@@ -268,7 +268,12 @@ class SlacksorRuntime:
 
     def ensure_cursor_auth(self) -> None:
         self._emit_log("Checking Cursor Agent authentication...")
-        if self.cursor.check_auth():
+        try:
+            ok = self.cursor.check_auth()
+        except CursorBinaryNotFoundError as exc:
+            self._emit_log(str(exc))
+            raise SystemExit(1) from exc
+        if ok:
             self._emit_log("Cursor Agent authenticated")
             return
         self._emit_log(

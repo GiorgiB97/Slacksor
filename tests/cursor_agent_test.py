@@ -8,9 +8,11 @@ import pytest
 
 from cursor_agent import (
     CursorAgentClient,
+    CursorBinaryNotFoundError,
     _extract_assistant_text,
     _parse_model_ids,
     _parse_event_line,
+    cursor_cli_binary_from_env,
     process_exists,
 )
 
@@ -179,6 +181,36 @@ def test_list_models_success(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(subprocess, "run", fake_run)
     client = CursorAgentClient(binary="cursor")
     assert client.list_models() == ["auto", "gpt-5.3-codex"]
+
+
+def test_list_models_raises_when_cursor_binary_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        raise FileNotFoundError(2, "No such file or directory", "cursor")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    client = CursorAgentClient(binary="cursor")
+    with pytest.raises(CursorBinaryNotFoundError) as exc_info:
+        client.list_models()
+    assert "cursor" in str(exc_info.value)
+
+
+def test_check_auth_propagates_cursor_binary_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        raise FileNotFoundError(2, "No such file or directory", "cursor")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    client = CursorAgentClient(binary="cursor")
+    with pytest.raises(CursorBinaryNotFoundError):
+        client.check_auth()
+
+
+def test_cursor_cli_binary_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SLACKSOR_CURSOR_BIN", raising=False)
+    assert cursor_cli_binary_from_env() == "cursor"
+    monkeypatch.setenv("SLACKSOR_CURSOR_BIN", "/opt/cursor")
+    assert cursor_cli_binary_from_env() == "/opt/cursor"
 
 
 def test_list_models_failure(monkeypatch: pytest.MonkeyPatch) -> None:

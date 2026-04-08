@@ -19,6 +19,25 @@ ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 AUTH_PROMPT_PATTERN = "Press any key to log in"
 
 
+class CursorBinaryNotFoundError(Exception):
+    """The Cursor CLI executable could not be executed (missing or not on PATH)."""
+
+
+def _cursor_binary_missing_message(binary: str) -> str:
+    return (
+        f"Cannot find or run the Cursor CLI ({binary!r}). "
+        "Install it from Cursor: Command Palette, then run "
+        "'Shell Command: Install cursor command in PATH'. "
+        "Or set SLACKSOR_CURSOR_BIN to the full path of the cursor executable."
+    )
+
+
+def cursor_cli_binary_from_env() -> str:
+    """CLI path: SLACKSOR_CURSOR_BIN if set, otherwise `cursor` on PATH."""
+    value = os.getenv("SLACKSOR_CURSOR_BIN", "").strip()
+    return value or "cursor"
+
+
 @dataclass
 class AgentRunResult:
     status: str
@@ -48,6 +67,8 @@ class CursorAgentClient:
         try:
             self.list_models(timeout_seconds=timeout_seconds)
             return True
+        except CursorBinaryNotFoundError:
+            raise
         except (RuntimeError, subprocess.TimeoutExpired):
             return False
 
@@ -70,6 +91,8 @@ class CursorAgentClient:
                 check=False,
                 timeout=timeout_seconds,
             )
+        except FileNotFoundError as exc:
+            raise CursorBinaryNotFoundError(_cursor_binary_missing_message(self.binary)) from exc
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError(
                 "Cursor Agent is not authenticated. "
@@ -91,13 +114,16 @@ class CursorAgentClient:
 
     def list_models(self, timeout_seconds: int = 20) -> list[str]:
         command = [self.binary, "agent", "models"]
-        process = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=timeout_seconds,
-        )
+        try:
+            process = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=timeout_seconds,
+            )
+        except FileNotFoundError as exc:
+            raise CursorBinaryNotFoundError(_cursor_binary_missing_message(self.binary)) from exc
         if process.returncode != 0:
             stderr = process.stderr.strip()
             raise RuntimeError(f"cursor agent models failed: {stderr}")
@@ -134,13 +160,16 @@ class CursorAgentClient:
         if model and model.lower() != "auto":
             command.extend(["--model", model])
         command.append(prompt)
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-        )
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+            )
+        except FileNotFoundError as exc:
+            raise CursorBinaryNotFoundError(_cursor_binary_missing_message(self.binary)) from exc
         self._active[process.pid] = process
         if on_process_started is not None:
             on_process_started(process.pid)
