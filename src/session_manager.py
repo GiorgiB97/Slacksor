@@ -14,6 +14,9 @@ from db import Database
 
 STOPPED_MESSAGE = "Agent stopped."
 
+# Posted to the Slack thread when a Cursor agent run completes successfully (not for !shell or bridge shortcuts).
+AGENT_OUTPUT_COMPLETED_MARKER = "=== Agent output completed ==="
+
 
 class SlackPoster(Protocol):
     def post_message(self, channel_id: str, text: str, thread_ts: str | None = None) -> None:
@@ -349,6 +352,12 @@ class SessionManager:
             self._slack.remove_reaction(channel_id, message_ts, "hourglass_flowing_sand")
             if result.status == "completed":
                 self._slack.add_reaction(channel_id, message_ts, "white_check_mark")
+                if not suppress_streaming_to_slack:
+                    self._slack.post_message(
+                        channel_id,
+                        AGENT_OUTPUT_COMPLETED_MARKER,
+                        thread_ts=thread_ts,
+                    )
             elif result.status == "timeout":
                 self._slack.add_reaction(channel_id, message_ts, "x")
                 self._slack.post_message(

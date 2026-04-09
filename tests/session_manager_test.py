@@ -6,7 +6,14 @@ from dataclasses import dataclass
 from config import AppConfig
 from cursor_agent import AgentRunResult
 from db import Database
-from session_manager import ActiveProcess, SessionManager, _format_for_slack, _split_for_slack, _store_token_usage
+from session_manager import (
+    AGENT_OUTPUT_COMPLETED_MARKER,
+    ActiveProcess,
+    SessionManager,
+    _format_for_slack,
+    _split_for_slack,
+    _store_token_usage,
+)
 
 
 class FakeSlack:
@@ -89,6 +96,7 @@ def test_handle_message_creates_session_and_posts(database: Database, app_config
 
     _wait_until(_done)
     assert any("hello" in post[1] for post in slack.posts)
+    assert any(post[1] == AGENT_OUTPUT_COMPLETED_MARKER for post in slack.posts)
     assert ("C1", "100.1", "white_check_mark") in slack.reactions
     assert ("C1", "100.1", "hourglass_flowing_sand") in slack.reactions
     assert ("C1", "100.1", "eyes") in slack.removed_reactions
@@ -237,6 +245,42 @@ def test_create_chat_failure_posts_error(database: Database, app_config: AppConf
     assert any("Could not start Cursor agent chat" in text for _, text, _ in slack.posts)
 
 
+def test_completed_marker_not_posted_when_agent_fails(database: Database, app_config: AppConfig) -> None:
+    class FailingCursor(FakeCursor):
+        def run_prompt(
+            self,
+            chat_id: str,
+            workspace_path,
+            prompt: str,
+            model: str,
+            timeout_seconds: int,
+            keepalive_seconds: int,
+            on_assistant_chunk,
+            on_keepalive,
+            on_process_started,
+        ):
+            self.last_run_chat_id = chat_id
+            self.last_run_prompt = prompt
+            del workspace_path, model, timeout_seconds, keepalive_seconds, on_keepalive
+            on_process_started(101)
+            on_assistant_chunk("partial")
+            return 101, FakeResult(status="failed", stderr="boom")
+
+    database.add_project("/tmp/proj", "proj", "C1")
+    slack = FakeSlack()
+    cursor = FailingCursor()
+    manager = SessionManager(database, cursor, slack, app_config, logger=lambda _: None)
+    manager.handle_message("/tmp/proj", "C1", "100.1", "100.1", "fix this")
+
+    def _done() -> bool:
+        rows = database.list_sessions()
+        return bool(rows) and rows[0]["status"] == "failed"
+
+    _wait_until(_done)
+    assert all(AGENT_OUTPUT_COMPLETED_MARKER not in text for _, text, _ in slack.posts)
+    assert ("C1", "100.1", "white_check_mark") not in slack.reactions
+
+
 def test_handle_message_skips_stream_chunks_when_mirror_enabled(database: Database, app_config: AppConfig) -> None:
     mirrored_config = AppConfig(
         slack_bot_token=app_config.slack_bot_token,
@@ -261,6 +305,7 @@ def test_handle_message_skips_stream_chunks_when_mirror_enabled(database: Databa
 
     _wait_until(_done)
     assert all(text != "hello" for _, text, _ in slack.posts)
+    assert all(text != AGENT_OUTPUT_COMPLETED_MARKER for _, text, _ in slack.posts)
 
 
 def test_store_token_usage_from_result_payload(database: Database) -> None:
