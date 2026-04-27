@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import slack_handlers
 from db import Database
 from slack_handlers import SlackClientAdapter, SlackEventRouter, _format_uptime
@@ -635,6 +636,37 @@ def test_router_screenshot_command_uploads_project_image(database: Database, tmp
     assert ("C1", "10.1", "white_check_mark") in slack.reactions
     assert ("C1", "10.1", "eyes") in slack.removed_reactions
     assert ("C1", "10.1", "hourglass_flowing_sand") in slack.removed_reactions
+
+
+def test_screencapture_args_no_display_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("SLACKSOR_SCREENSHOT_DISPLAY", raising=False)
+    from slack_handlers import _screencapture_args
+
+    p = tmp_path / "out.png"
+    assert _screencapture_args(p) == ["screencapture", "-x", str(p)]
+
+
+def test_screencapture_args_with_display_index(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("SLACKSOR_SCREENSHOT_DISPLAY", "2")
+    from slack_handlers import _screencapture_args
+
+    p = tmp_path / "out.png"
+    assert _screencapture_args(p) == ["screencapture", "-x", "-D", "2", str(p)]
+
+
+def test_screencapture_args_rejects_invalid_display(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("SLACKSOR_SCREENSHOT_DISPLAY", "0")
+    from slack_handlers import _screencapture_args
+
+    p = tmp_path / "out.png"
+    with pytest.raises(RuntimeError, match="SLACKSOR_SCREENSHOT_DISPLAY"):
+        _screencapture_args(p)
 
 
 def test_router_screen_alias_uploads_project_image(database: Database, tmp_path) -> None:

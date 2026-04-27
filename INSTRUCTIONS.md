@@ -76,6 +76,7 @@ Optional runtime knobs:
 - `SLACKSOR_ENABLE_IDE_TRANSCRIPT_MIRROR=true`
 - `SLACKSOR_ENABLE_CURSOR_HOOKS_SYNC=true`
 - `SLACKSOR_SCREENSHOT_DIR=/tmp/slacksor/screenshots`
+- `SLACKSOR_SCREENSHOT_DISPLAY=2` (optional; `screencapture -D` 1-based index). If screenshots are all black with the **lid closed** and an **external display**, the built-in display is off and the default capture may still target it; set this to the monitor that actually shows the desktop (often `2` when the built-in is index `1`).
 
 ## Run Slacksor
 

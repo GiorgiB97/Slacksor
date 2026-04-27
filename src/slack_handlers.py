@@ -69,10 +69,24 @@ def _screenshot_path_for_workspace(workspace_path: str, screenshot_dir: Path) ->
     return screenshot_dir / f"screenshot-{project_name}.png"
 
 
+def _screencapture_args(path: Path) -> list[str]:
+    """Build argv for screencapture. Optional SLACKSOR_SCREENSHOT_DISPLAY sets -D (1-based)."""
+    raw = os.getenv("SLACKSOR_SCREENSHOT_DISPLAY", "").strip()
+    args = ["screencapture", "-x"]
+    if raw:
+        if not raw.isdigit() or int(raw) < 1:
+            raise RuntimeError(
+                f"SLACKSOR_SCREENSHOT_DISPLAY must be a positive integer (display index for screencapture -D), got {raw!r}"
+            )
+        args.extend(["-D", raw])
+    args.append(str(path))
+    return args
+
+
 def _capture_desktop_screenshot(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(
-        ["screencapture", "-x", str(path)],
+        _screencapture_args(path),
         capture_output=True,
         text=True,
         timeout=SCREENSHOT_COMMAND_TIMEOUT_SECONDS,
