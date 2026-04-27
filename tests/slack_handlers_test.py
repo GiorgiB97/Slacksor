@@ -630,6 +630,11 @@ def test_router_screenshot_command_uploads_project_image(database: Database, tmp
     assert thread_ts == "10.1"
     assert initial_comment == "Screenshot captured for `My Project`."
     assert (screenshot_dir / "screenshot-My-Project.png").read_bytes() == b"png"
+    assert ("C1", "10.1", "eyes") in slack.reactions
+    assert ("C1", "10.1", "hourglass_flowing_sand") in slack.reactions
+    assert ("C1", "10.1", "white_check_mark") in slack.reactions
+    assert ("C1", "10.1", "eyes") in slack.removed_reactions
+    assert ("C1", "10.1", "hourglass_flowing_sand") in slack.removed_reactions
 
 
 def test_router_screen_alias_uploads_project_image(database: Database, tmp_path) -> None:
@@ -675,6 +680,11 @@ def test_router_screenshot_failure_posts_error(database: Database, tmp_path) -> 
     router.handle_message_event({"channel": "C1", "text": "screenshot", "ts": "10.1"})
     assert slack.uploads == []
     assert any("screen recording permission denied" in text for _, text, _ in slack.posts)
+    assert ("C1", "10.1", "eyes") in slack.reactions
+    assert ("C1", "10.1", "hourglass_flowing_sand") in slack.reactions
+    assert ("C1", "10.1", "x") in slack.reactions
+    assert ("C1", "10.1", "eyes") in slack.removed_reactions
+    assert ("C1", "10.1", "hourglass_flowing_sand") in slack.removed_reactions
 
 
 def test_router_branch_command(database: Database, tmp_path) -> None:

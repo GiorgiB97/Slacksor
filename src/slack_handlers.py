@@ -420,10 +420,12 @@ class SlackEventRouter:
         self._slack.post_message(channel_id, response, thread_ts=thread_ts)
 
     def _run_screenshot_command(
-        self, workspace_path: str, channel_id: str, thread_ts: str
+        self, workspace_path: str, channel_id: str, thread_ts: str, message_ts: str
     ) -> None:
         screenshot_path = _screenshot_path_for_workspace(workspace_path, self._screenshot_dir)
         project_name = Path(workspace_path).name or "workspace"
+        self._slack.add_reaction(channel_id, message_ts, "eyes")
+        self._slack.add_reaction(channel_id, message_ts, "hourglass_flowing_sand")
         try:
             self._screenshot_capture(screenshot_path)
             self._slack.upload_file(
@@ -433,13 +435,16 @@ class SlackEventRouter:
                 thread_ts=thread_ts,
                 initial_comment=f"Screenshot captured for `{project_name}`.",
             )
+            self._slack.add_reaction(channel_id, message_ts, "white_check_mark")
         except subprocess.TimeoutExpired:
+            self._slack.add_reaction(channel_id, message_ts, "x")
             self._slack.post_message(
                 channel_id,
                 f"Screenshot timed out after {SCREENSHOT_COMMAND_TIMEOUT_SECONDS}s.",
                 thread_ts=thread_ts,
             )
         except SlackApiError as exc:
+            self._slack.add_reaction(channel_id, message_ts, "x")
             error_code = str(exc.response.get("error", ""))
             if error_code == "missing_scope":
                 message = "Screenshot captured, but Slack upload failed: missing `files:write` scope."
@@ -447,11 +452,15 @@ class SlackEventRouter:
                 message = f"Screenshot captured, but Slack upload failed: {error_code or exc}"
             self._slack.post_message(channel_id, message, thread_ts=thread_ts)
         except Exception as exc:
+            self._slack.add_reaction(channel_id, message_ts, "x")
             self._slack.post_message(
                 channel_id,
                 f"Failed to capture screenshot: {exc}",
                 thread_ts=thread_ts,
             )
+        finally:
+            self._slack.remove_reaction(channel_id, message_ts, "eyes")
+            self._slack.remove_reaction(channel_id, message_ts, "hourglass_flowing_sand")
 
     def handle_message_event(self, event: dict[str, Any]) -> None:
         if event.get("bot_id") or event.get("subtype") == "bot_message":
@@ -497,7 +506,7 @@ class SlackEventRouter:
             return
 
         if is_screenshot_command(translated):
-            self._run_screenshot_command(workspace_path, channel_id, thread_ts)
+            self._run_screenshot_command(workspace_path, channel_id, thread_ts, ts)
             return
 
         if is_branch_command(translated):
