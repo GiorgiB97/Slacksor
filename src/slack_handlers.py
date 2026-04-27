@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -29,6 +31,7 @@ from bridge_commands import (
     is_ls_command,
     is_ping_command,
     is_pull_command,
+    is_screenshot_command,
     is_shell_command,
     is_status_command,
     is_whoami_command,
@@ -42,8 +45,41 @@ from bridge_commands import (
 )
 
 SHELL_COMMAND_TIMEOUT_SECONDS = 30
+SCREENSHOT_COMMAND_TIMEOUT_SECONDS = 10
 SHELL_OUTPUT_MAX_CHARS = 3500
 MAX_URL_REFERENCES = 3
+ScreenshotCapture = Callable[[Path], None]
+
+
+def _sanitize_filename_part(value: str) -> str:
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip())
+    sanitized = sanitized.strip(".-_")
+    return sanitized or "workspace"
+
+
+def _default_screenshot_dir() -> Path:
+    configured = os.getenv("SLACKSOR_SCREENSHOT_DIR", "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return (Path("/tmp") / "slacksor" / "screenshots").resolve()
+
+
+def _screenshot_path_for_workspace(workspace_path: str, screenshot_dir: Path) -> Path:
+    project_name = _sanitize_filename_part(Path(workspace_path).name)
+    return screenshot_dir / f"screenshot-{project_name}.png"
+
+
+def _capture_desktop_screenshot(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(
+        ["screencapture", "-x", str(path)],
+        capture_output=True,
+        text=True,
+        timeout=SCREENSHOT_COMMAND_TIMEOUT_SECONDS,
+    )
+    if result.returncode != 0:
+        error = result.stderr.strip() or result.stdout.strip() or "unknown error"
+        raise RuntimeError(error)
 
 
 class SlackClientAdapter:
@@ -54,6 +90,22 @@ class SlackClientAdapter:
 
     def post_message(self, channel_id: str, text: str, thread_ts: str | None = None) -> None:
         self._web.chat_postMessage(channel=channel_id, text=text, thread_ts=thread_ts)
+
+    def upload_file(
+        self,
+        channel_id: str,
+        file_path: Path,
+        title: str,
+        thread_ts: str | None = None,
+        initial_comment: str | None = None,
+    ) -> None:
+        self._web.files_upload_v2(
+            channel=channel_id,
+            file=str(file_path),
+            title=title,
+            thread_ts=thread_ts,
+            initial_comment=initial_comment,
+        )
 
     def add_reaction(self, channel_id: str, timestamp: str, emoji: str) -> None:
         try:
@@ -184,12 +236,16 @@ class SlackEventRouter:
         slack_client: SlackClientAdapter,
         logger: Callable[[str], None],
         model_options_provider: Callable[[], list[str]] | None = None,
+        screenshot_dir: Path | None = None,
+        screenshot_capture: ScreenshotCapture | None = None,
     ) -> None:
         self._db = db
         self._sessions = sessions
         self._slack = slack_client
         self._logger = logger
         self._model_options_provider = model_options_provider
+        self._screenshot_dir = screenshot_dir or _default_screenshot_dir()
+        self._screenshot_capture = screenshot_capture or _capture_desktop_screenshot
         self._model_cache_ttl_seconds = 15 * 60
         self._started_at = time.time()
 
@@ -363,6 +419,40 @@ class SlackEventRouter:
             response = f"Failed to run command: {exc}"
         self._slack.post_message(channel_id, response, thread_ts=thread_ts)
 
+    def _run_screenshot_command(
+        self, workspace_path: str, channel_id: str, thread_ts: str
+    ) -> None:
+        screenshot_path = _screenshot_path_for_workspace(workspace_path, self._screenshot_dir)
+        project_name = Path(workspace_path).name or "workspace"
+        try:
+            self._screenshot_capture(screenshot_path)
+            self._slack.upload_file(
+                channel_id=channel_id,
+                file_path=screenshot_path,
+                title=f"Screenshot: {project_name}",
+                thread_ts=thread_ts,
+                initial_comment=f"Screenshot captured for `{project_name}`.",
+            )
+        except subprocess.TimeoutExpired:
+            self._slack.post_message(
+                channel_id,
+                f"Screenshot timed out after {SCREENSHOT_COMMAND_TIMEOUT_SECONDS}s.",
+                thread_ts=thread_ts,
+            )
+        except SlackApiError as exc:
+            error_code = str(exc.response.get("error", ""))
+            if error_code == "missing_scope":
+                message = "Screenshot captured, but Slack upload failed: missing `files:write` scope."
+            else:
+                message = f"Screenshot captured, but Slack upload failed: {error_code or exc}"
+            self._slack.post_message(channel_id, message, thread_ts=thread_ts)
+        except Exception as exc:
+            self._slack.post_message(
+                channel_id,
+                f"Failed to capture screenshot: {exc}",
+                thread_ts=thread_ts,
+            )
+
     def handle_message_event(self, event: dict[str, Any]) -> None:
         if event.get("bot_id") or event.get("subtype") == "bot_message":
             return
@@ -404,6 +494,10 @@ class SlackEventRouter:
                 f"Default model: `{current_model}`",
             ]
             self._slack.post_message(channel_id, "\n".join(lines), thread_ts=thread_ts)
+            return
+
+        if is_screenshot_command(translated):
+            self._run_screenshot_command(workspace_path, channel_id, thread_ts)
             return
 
         if is_branch_command(translated):

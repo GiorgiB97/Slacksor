@@ -30,6 +30,7 @@ Slacksor maps local workspace paths to Slack channels. When a message arrives in
 - Mirror IDE chat transcripts into Slack threads
 - Cursor command integration (`/review`, `/tests`, etc.) via `.cursor/commands/`
 - Shell command passthrough (`!git log`, `!ls`, etc.)
+- Desktop screenshot uploads (`screen` / `screenshot`)
 - TUI dashboard (Textual) or headless `serve` mode
 - Slack thread/message referencing -- paste a Slack URL to include that conversation as context
 - Per-project model overrides
@@ -48,6 +49,7 @@ Commands intercepted by the bridge (not forwarded to the AI):
 | `model <name>` | Set default model for new requests |
 | `model-override <name>` | Set per-project model override (use `clear` to remove) |
 | `stop` / `exit` | Terminate the active agent session |
+| `screen` / `screenshot` | Capture the desktop and upload it to the thread |
 | `!<cmd>` | Run a shell command in the workspace (e.g. `!npm test`) |
 | `/<cmd>` | Use a Cursor command file (`.cursor/commands/<cmd>.md`) |
 

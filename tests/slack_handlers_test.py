@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import slack_handlers
 from db import Database
 from slack_handlers import SlackClientAdapter, SlackEventRouter, _format_uptime
@@ -46,6 +48,7 @@ class FakeSessions:
 class FakeSlack:
     def __init__(self) -> None:
         self.posts: list[tuple[str, str, str | None]] = []
+        self.uploads: list[tuple[str, str, str, str | None, str | None]] = []
         self.reactions: list[tuple[str, str, str]] = []
         self.removed_reactions: list[tuple[str, str, str]] = []
         self.thread_replies: list[dict] = []
@@ -54,6 +57,16 @@ class FakeSlack:
 
     def post_message(self, channel_id: str, text: str, thread_ts: str | None = None) -> None:
         self.posts.append((channel_id, text, thread_ts))
+
+    def upload_file(
+        self,
+        channel_id: str,
+        file_path,
+        title: str,
+        thread_ts: str | None = None,
+        initial_comment: str | None = None,
+    ) -> None:
+        self.uploads.append((channel_id, str(file_path), title, thread_ts, initial_comment))
 
     def add_reaction(self, channel_id: str, timestamp: str, emoji: str) -> None:
         self.reactions.append((channel_id, timestamp, emoji))
@@ -337,6 +350,35 @@ def test_ensure_channel_create_new() -> None:
     assert fake.created == ["newchan"]
 
 
+def test_slack_client_adapter_uploads_file() -> None:
+    class WebWithUploads:
+        def __init__(self) -> None:
+            self.uploads: list[dict] = []
+
+        def files_upload_v2(self, **kwargs):
+            self.uploads.append(kwargs)
+            return {"ok": True}
+
+    fake = WebWithUploads()
+    adapter = SlackClientAdapter(fake)  # type: ignore[arg-type]
+    adapter.upload_file(
+        "C1",
+        Path("/tmp/screenshot-test.png"),
+        title="Screenshot",
+        thread_ts="10.1",
+        initial_comment="Captured.",
+    )
+    assert fake.uploads == [
+        {
+            "channel": "C1",
+            "file": "/tmp/screenshot-test.png",
+            "title": "Screenshot",
+            "thread_ts": "10.1",
+            "initial_comment": "Captured.",
+        }
+    ]
+
+
 def test_router_passes_thread_context_when_replies_exist(database: Database) -> None:
     database.add_project("/tmp/a", "a", "C1")
     sessions = FakeSessions()
@@ -557,6 +599,82 @@ def test_router_ping_works_when_active(database: Database) -> None:
     assert len(slack.posts) == 1
     assert "Pong!" in slack.posts[0][1]
     assert len(sessions.handled) == 0
+
+
+def test_router_screenshot_command_uploads_project_image(database: Database, tmp_path) -> None:
+    workspace = tmp_path / "My Project"
+    screenshot_dir = tmp_path / "screenshots"
+    database.add_project(str(workspace), "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+
+    def fake_capture(path) -> None:
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"png")
+
+    router = SlackEventRouter(
+        database,
+        sessions,
+        slack,
+        logger=lambda _: None,
+        screenshot_dir=screenshot_dir,
+        screenshot_capture=fake_capture,
+    )
+    router.handle_message_event({"channel": "C1", "text": "screenshot", "ts": "10.1"})
+    assert sessions.handled == []
+    assert len(slack.uploads) == 1
+    channel_id, file_path, title, thread_ts, initial_comment = slack.uploads[0]
+    assert channel_id == "C1"
+    assert file_path == str(screenshot_dir / "screenshot-My-Project.png")
+    assert title == "Screenshot: My Project"
+    assert thread_ts == "10.1"
+    assert initial_comment == "Screenshot captured for `My Project`."
+    assert (screenshot_dir / "screenshot-My-Project.png").read_bytes() == b"png"
+
+
+def test_router_screen_alias_uploads_project_image(database: Database, tmp_path) -> None:
+    workspace = tmp_path / "app"
+    database.add_project(str(workspace), "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+
+    def fake_capture(path) -> None:
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"png")
+
+    router = SlackEventRouter(
+        database,
+        sessions,
+        slack,
+        logger=lambda _: None,
+        screenshot_dir=tmp_path / "screenshots",
+        screenshot_capture=fake_capture,
+    )
+    router.handle_message_event({"channel": "C1", "text": "screen", "ts": "10.1"})
+    assert len(slack.uploads) == 1
+    assert len(sessions.handled) == 0
+
+
+def test_router_screenshot_failure_posts_error(database: Database, tmp_path) -> None:
+    database.add_project(str(tmp_path / "app"), "a", "C1")
+    sessions = FakeSessions()
+    slack = FakeSlack()
+
+    def failing_capture(path) -> None:
+        del path
+        raise RuntimeError("screen recording permission denied")
+
+    router = SlackEventRouter(
+        database,
+        sessions,
+        slack,
+        logger=lambda _: None,
+        screenshot_dir=tmp_path / "screenshots",
+        screenshot_capture=failing_capture,
+    )
+    router.handle_message_event({"channel": "C1", "text": "screenshot", "ts": "10.1"})
+    assert slack.uploads == []
+    assert any("screen recording permission denied" in text for _, text, _ in slack.posts)
 
 
 def test_router_branch_command(database: Database, tmp_path) -> None:

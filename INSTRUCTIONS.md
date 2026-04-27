@@ -21,6 +21,7 @@ In **OAuth & Permissions** add these Bot Token Scopes:
 - `channels:read`
 - `channels:manage`
 - `channels:join`
+- `files:write`
 - `reactions:write`
 - `users:write`
 
@@ -74,6 +75,7 @@ Optional runtime knobs:
 - `SLACKSOR_POLLING_INTERVAL_SECONDS=1.0`
 - `SLACKSOR_ENABLE_IDE_TRANSCRIPT_MIRROR=true`
 - `SLACKSOR_ENABLE_CURSOR_HOOKS_SYNC=true`
+- `SLACKSOR_SCREENSHOT_DIR=/tmp/slacksor/screenshots`
 
 ## Run Slacksor
 
@@ -130,9 +132,15 @@ These commands are intercepted by slacksor and not sent to Cursor Agent:
 - `branch` -- show git branches with current branch highlighted
 - `status` -- show `git status` for the workspace
 - `diff` -- show git diff summary with changed lines per file
+- `screen` / `screenshot` -- capture the desktop and upload it to the thread
 - `stop` / `exit` -- stop active session processing
 - `!<command>` -- run a shell command in the workspace (e.g. `!git log --oneline -5`)
 - `/<command>` -- use a Cursor command (e.g. `/review`, `/tests`). Looks up `.cursor/commands/<command>.md` in workspace, then `~/.cursor/commands/`
+
+Screenshots are stored outside the project by default under `/tmp/slacksor/screenshots`
+as `screenshot-{projectName}.png`. New captures for the same project overwrite the previous
+file. On macOS, grant Screen Recording permission to the terminal or launch process running
+Slacksor if capture fails.
 
 ## TUI Key Bindings
 

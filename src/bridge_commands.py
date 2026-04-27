@@ -83,6 +83,10 @@ def is_status_command(text: str) -> bool:
     return text.strip().lower() == "status"
 
 
+def is_screenshot_command(text: str) -> bool:
+    return text.strip().lower() in {"screen", "screenshot"}
+
+
 def is_diff_command(text: str) -> bool:
     return text.strip().lower() == "diff"
 
@@ -204,6 +208,7 @@ def bridge_help_text(current_model: str) -> str:
         "- `model` / `model <name>`: show or set default model.\n"
         "- `model-override <name>`: set per-project model override (`clear` to remove).\n"
         "- `stop` / `exit`: stop the active session.\n"
+        "- `screen` / `screenshot`: capture the desktop and upload it to this thread.\n"
         "- `!<command>`: run a shell command (e.g. `!git status`).\n"
         "- `/<command>`: use a cursor command (e.g. `/review`).\n"
         "\n*Git commands:*\n"
